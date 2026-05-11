@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
 from annotator_backend.config import Settings
+from annotator_backend.pii_redact import redact_for_llm
 
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 
 ALLOWED_CATEGORY = frozenset(
     {"billing", "bug", "feature_request", "account", "other"},
@@ -51,6 +52,9 @@ Rules for PII and secrets:
 - Do not include email addresses, names, phone numbers, account identifiers, payment or card \
 details, passwords, API keys, tokens, or any personally identifying information in "summary" \
 or in any field.
+- The ticket text may contain bracketed placeholders such as [REDACTED_SSN] where obvious \
+values were stripped before you see the message; still use generic wording and do not invent \
+specific identifiers.
 - Use generic phrasing (e.g. "customer reports a duplicate subscription charge" rather than \
 quoting names, emails, or card data).
 
@@ -115,13 +119,18 @@ def _parse_payload(text: str) -> EnrichmentResult:
 
 
 def enrich_ticket(*, title: str, body: str, settings: Settings) -> EnrichmentResult:
+    safe_title = redact_for_llm(title)
+    safe_body = redact_for_llm(body)
+    # delete this later
+    print(f"safe_title: {safe_title}")
+    print(f"safe_body: {safe_body}")
     client = OpenAI(api_key=settings.openai_api_key, timeout=settings.llm_timeout_seconds)
     try:
         completion = client.chat.completions.create(
             model=settings.openai_model,
             messages=[
                 {"role": "system", "content": build_system_prompt()},
-                {"role": "user", "content": _user_message(title, body)},
+                {"role": "user", "content": _user_message(safe_title, safe_body)},
             ],
             response_format={"type": "json_object"},
         )
