@@ -13,10 +13,19 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from annotator_backend.config import get_settings
 from annotator_backend.dedupe import content_duplicate_hash, normalize_email
+from annotator_backend.embedding_index_worker import run_embedding_index_job
 from annotator_backend.enrichment_worker import run_enrichment_job
-from annotator_backend.schemas import TicketCreate, TicketListResponse, TicketOut
-from db.models import Customer, SupportTicket, TicketEnrichment
+from annotator_backend.schemas import (
+    TicketCreate,
+    TicketListResponse,
+    TicketOut,
+    TicketSearchHit,
+    TicketSearchRequest,
+    TicketSearchResponse,
+)
+from db.models import Customer, SupportTicket, TicketEnrichment, TicketSearchEmbedding
 from db.session import get_db
 
 router = APIRouter()
@@ -157,6 +166,7 @@ def create_ticket(
     # post-yield commit, so a new session in the worker would not see this row yet.
     db.commit()
     background_tasks.add_task(run_enrichment_job, ticket.id)
+    background_tasks.add_task(run_embedding_index_job, ticket.id)
 
     db.refresh(ticket)
     customer = db.get(Customer, ticket.customer_id)
@@ -199,6 +209,48 @@ def list_tickets(
     rows = db.execute(stmt).all()
     items = [_ticket_to_out(ticket=t, customer=c, enrichment=e) for t, c, e in rows]
     return TicketListResponse(items=items, limit=limit, offset=offset)
+
+
+@router.post("/tickets/search", response_model=TicketSearchResponse)
+def search_tickets(
+    payload: TicketSearchRequest,
+    db: SessionDep,
+) -> TicketSearchResponse:
+    from annotator_backend.embeddings import embed_query
+
+    settings = get_settings()
+    try:
+        qvec = embed_query(payload.query.strip(), settings=settings)
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="embedding provider unavailable",
+        ) from None
+
+    dist_expr = TicketSearchEmbedding.embedding.cosine_distance(qvec)
+    stmt = (
+        select(SupportTicket, Customer, TicketEnrichment, dist_expr.label("dist"))
+        .select_from(TicketSearchEmbedding)
+        .join(SupportTicket, SupportTicket.id == TicketSearchEmbedding.ticket_id)
+        .join(Customer, Customer.id == SupportTicket.customer_id)
+        .outerjoin(
+            TicketEnrichment,
+            (TicketEnrichment.ticket_id == SupportTicket.id)
+            & (TicketEnrichment.is_current.is_(True)),
+        )
+        .order_by(dist_expr)
+        .limit(payload.limit)
+    )
+    rows = db.execute(stmt).all()
+    items: list[TicketSearchHit] = []
+    for t, c, e, dist in rows:
+        out = _ticket_to_out(ticket=t, customer=c, enrichment=e)
+        items.append(
+            TicketSearchHit.model_validate(
+                {**out.model_dump(), "distance": float(dist)},
+            )
+        )
+    return TicketSearchResponse(items=items)
 
 
 @router.get("/tickets/{ticket_id}", response_model=TicketOut)

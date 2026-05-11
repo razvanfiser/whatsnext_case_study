@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, Uuid
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -62,6 +63,10 @@ class SupportTicket(Base):
     enrichments: Mapped[list[TicketEnrichment]] = relationship(
         back_populates="ticket", cascade="all, delete-orphan"
     )
+    search_embedding: Mapped[TicketSearchEmbedding | None] = relationship(
+        back_populates="ticket",
+        uselist=False,
+    )
 
 
 class TicketEnrichment(Base):
@@ -94,3 +99,23 @@ class TicketEnrichment(Base):
     )
 
     ticket: Mapped[SupportTicket] = relationship(back_populates="enrichments")
+
+
+class TicketSearchEmbedding(Base):
+    __tablename__ = "ticket_search_embeddings"
+
+    ticket_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("support_tickets.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    ticket: Mapped[SupportTicket] = relationship(back_populates="search_embedding")

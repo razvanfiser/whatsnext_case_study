@@ -1,6 +1,7 @@
 -- Applied automatically by the Postgres Docker image on first init (docker-entrypoint-initdb.d).
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE customers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -108,3 +109,19 @@ ON ticket_enrichments(created_at DESC);
 CREATE INDEX idx_ticket_enrichments_current_filters
 ON ticket_enrichments(category, priority, created_at DESC)
 WHERE is_current = true;
+
+-- Semantic search: one row per ticket (async-filled after ingest). Vector dim must match
+-- OPENAI_EMBEDDING_DIMENSIONS (default 1536 for text-embedding-3-small).
+CREATE TABLE ticket_search_embeddings (
+    ticket_id UUID PRIMARY KEY REFERENCES support_tickets(id) ON DELETE CASCADE,
+
+    embedding vector(1536) NOT NULL,
+    model TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_ticket_search_embeddings_hnsw
+ON ticket_search_embeddings
+USING hnsw (embedding vector_cosine_ops);

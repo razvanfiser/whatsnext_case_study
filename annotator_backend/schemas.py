@@ -37,3 +37,16 @@ class TicketListResponse(BaseModel):
     items: list[TicketOut]
     limit: int
     offset: int
+
+
+class TicketSearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class TicketSearchHit(TicketOut):
+    distance: float
+
+
+class TicketSearchResponse(BaseModel):
+    items: list[TicketSearchHit]
