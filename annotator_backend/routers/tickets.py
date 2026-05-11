@@ -197,9 +197,7 @@ def list_tickets(
         stmt = stmt.where(TicketEnrichment.priority == priority)
 
     rows = db.execute(stmt).all()
-    items = [
-        _ticket_to_out(ticket=t, customer=c, enrichment=e) for t, c, e in rows
-    ]
+    items = [_ticket_to_out(ticket=t, customer=c, enrichment=e) for t, c, e in rows]
     return TicketListResponse(items=items, limit=limit, offset=offset)
 
 
