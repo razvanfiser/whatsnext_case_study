@@ -10,4 +10,4 @@ COPY db/ ./db/
 
 EXPOSE 8000
 
-CMD ["python", "-c", "print('API not wired yet; use docker compose for db only')"]
+CMD ["uvicorn", "annotator_backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,2 +1,10 @@
-# Dev / lint (case must-have). Add FastAPI, DB drivers, etc. when building the API.
+# Dev / lint (case must-have).
 ruff>=0.8,<1
+
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+sqlalchemy>=2.0,<3
+psycopg[binary]>=3.2,<4
+pydantic-settings>=2.6,<3
+email-validator>=2,<3
+openai>=1.57,<2
