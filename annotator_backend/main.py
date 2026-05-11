@@ -1,5 +1,6 @@
 """FastAPI application entrypoint."""
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -11,6 +12,11 @@ from db.session import configure_engine
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    if not logging.root.handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(levelname)s %(name)s %(message)s",
+        )
     configure_engine(database_url=get_settings().database_url)
     yield
 

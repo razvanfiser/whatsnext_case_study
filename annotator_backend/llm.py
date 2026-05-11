@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
 from annotator_backend.config import Settings
 
@@ -30,6 +30,12 @@ class EnrichmentError(Exception):
     def __init__(self, code: str, message: str) -> None:
         self.code = code
         super().__init__(message)
+
+
+class TransientEnrichmentError(Exception):
+    """Network/timeout/rate-limit or 5xx from the provider — safe to retry."""
+
+    pass
 
 
 def build_system_prompt() -> str:
@@ -119,6 +125,17 @@ def enrich_ticket(*, title: str, body: str, settings: Settings) -> EnrichmentRes
             ],
             response_format={"type": "json_object"},
         )
+    except APITimeoutError as e:
+        raise TransientEnrichmentError(str(e)) from e
+    except APIConnectionError as e:
+        raise TransientEnrichmentError(str(e)) from e
+    except RateLimitError as e:
+        raise TransientEnrichmentError(str(e)) from e
+    except APIStatusError as e:
+        code = getattr(e, "status_code", None)
+        if code is not None and (code == 429 or code >= 500):
+            raise TransientEnrichmentError(str(e)) from e
+        raise EnrichmentError("provider_error", str(e)) from e
     except Exception as e:
         raise EnrichmentError("provider_error", str(e)) from e
     choice = completion.choices[0].message.content

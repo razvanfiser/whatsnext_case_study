@@ -6,16 +6,15 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from annotator_backend.config import get_settings
 from annotator_backend.dedupe import content_duplicate_hash, normalize_email
-from annotator_backend.llm import PROMPT_VERSION, EnrichmentError, enrich_ticket
+from annotator_backend.enrichment_worker import run_enrichment_job
 from annotator_backend.schemas import TicketCreate, TicketListResponse, TicketOut
 from db.models import Customer, SupportTicket, TicketEnrichment
 from db.session import get_db
@@ -86,8 +85,8 @@ def _parse_since(value: str | None) -> datetime | None:
 def create_ticket(
     payload: TicketCreate,
     db: SessionDep,
+    background_tasks: BackgroundTasks,
 ) -> JSONResponse:
-    settings = get_settings()
     dup_hash = content_duplicate_hash(
         payload.customer_email,
         payload.title,
@@ -154,29 +153,10 @@ def create_ticket(
         out2 = _ticket_to_out(ticket=existing2, customer=existing2.customer, enrichment=enr2)
         return JSONResponse(status_code=200, content=out2.model_dump(mode="json", by_alias=True))
 
-    try:
-        result = enrich_ticket(
-            title=payload.title,
-            body=payload.body,
-            settings=settings,
-        )
-    except EnrichmentError as e:
-        enrichment.status = "failed"
-        enrichment.error_code = e.code
-        enrichment.last_attempt_at = utc_now()
-        enrichment.model = settings.openai_model
-        enrichment.prompt_version = PROMPT_VERSION
-        enrichment.updated_at = utc_now()
-    else:
-        enrichment.status = "completed"
-        enrichment.category = result.category
-        enrichment.priority = result.priority
-        enrichment.sentiment = result.sentiment
-        enrichment.summary = result.summary
-        enrichment.last_attempt_at = utc_now()
-        enrichment.model = settings.openai_model
-        enrichment.prompt_version = PROMPT_VERSION
-        enrichment.updated_at = utc_now()
+    # Persist before scheduling enrichment: BackgroundTasks can run before get_db's
+    # post-yield commit, so a new session in the worker would not see this row yet.
+    db.commit()
+    background_tasks.add_task(run_enrichment_job, ticket.id)
 
     db.refresh(ticket)
     customer = db.get(Customer, ticket.customer_id)
