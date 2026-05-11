@@ -2,5 +2,9 @@
 target-version = "py311"
 line-length = 100
 
+[tool.ruff.format]
+# Uses the same line length as lint; double quotes to match common Black/Ruff defaults.
+quote-style = "double"
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
