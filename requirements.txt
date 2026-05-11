@@ -1,0 +1,2 @@
+# Dev / lint (case must-have). Add FastAPI, DB drivers, etc. when building the API.
+ruff>=0.8,<1
