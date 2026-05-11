@@ -18,6 +18,7 @@ from annotator_backend.dedupe import content_duplicate_hash, normalize_email
 from annotator_backend.embedding_index_worker import run_embedding_index_job
 from annotator_backend.enrichment_worker import run_enrichment_job
 from annotator_backend.schemas import (
+    EnrichmentListFilter,
     TicketCreate,
     TicketListResponse,
     TicketOut,
@@ -182,6 +183,7 @@ def list_tickets(
     db: SessionDep,
     category: str | None = None,
     priority: str | None = None,
+    enrichment_status: EnrichmentListFilter | None = None,
     since: str | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -201,6 +203,8 @@ def list_tickets(
     )
     if since_dt is not None:
         stmt = stmt.where(SupportTicket.created_at >= since_dt)
+    if enrichment_status is not None:
+        stmt = stmt.where(TicketEnrichment.status == enrichment_status)
     if category is not None:
         stmt = stmt.where(TicketEnrichment.category == category)
     if priority is not None:

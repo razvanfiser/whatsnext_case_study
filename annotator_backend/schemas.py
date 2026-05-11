@@ -4,8 +4,18 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+
+class EnrichmentListFilter(str, Enum):
+    """Matches `ticket_enrichments.status` for GET /tickets filtering."""
+
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
 
 
 class TicketCreate(BaseModel):
