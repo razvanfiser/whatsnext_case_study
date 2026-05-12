@@ -73,10 +73,25 @@ OpenAPI docs: `http://localhost:8000/docs` when the server is running.
 
 ## Linting and formatting
 
+From the repo root:
+
 ```bash
 ruff check annotator_backend db
 ruff format annotator_backend db
 ```
+
+### Pre-commit (optional)
+
+Install once per clone, then the same Ruff checks (with `--fix` where applicable) plus `unittest` run automatically on `git commit`:
+
+```bash
+pip install pre-commit   # or install into your virtualenv
+pre-commit install
+```
+
+Hooks: `ruff` and `ruff-format` on `annotator_backend/` and `db/`; then `python -m unittest discover -s annotator_backend/tests -p 'test_*.py' -v` in an isolated Python env whose dependencies mirror [`requirements.txt`](requirements.txt) (minus Ruff). If you add runtime packages, update the `additional_dependencies` list under the `unittest-discover` hook in [`.pre-commit-config.yaml`](.pre-commit-config.yaml) so it stays in sync.
+
+Run all hooks on the whole repo without committing: `pre-commit run --all-files`.
 
 ## Tests
 

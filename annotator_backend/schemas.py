@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
-class EnrichmentListFilter(str, Enum):
+class EnrichmentListFilter(StrEnum):
     """Matches `ticket_enrichments.status` for GET /tickets filtering."""
 
     pending = "pending"

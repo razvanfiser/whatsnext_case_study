@@ -1,0 +1,29 @@
+# https://pre-commit.com
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^(annotator_backend|db)/
+      - id: ruff-format
+        files: ^(annotator_backend|db)/
+  - repo: local
+    hooks:
+      # Same runtime stack as requirements.txt (minus ruff). Inline pins because pre-commit
+      # installs in an isolated env where -r requirements.txt is not available.
+      - id: unittest-discover
+        name: unittest (annotator_backend)
+        language: python
+        additional_dependencies:
+          - fastapi>=0.115,<1
+          - uvicorn[standard]>=0.32,<1
+          - sqlalchemy>=2.0,<3
+          - psycopg[binary]>=3.2,<4
+          - pydantic-settings>=2.6,<3
+          - email-validator>=2,<3
+          - openai>=1.57,<2
+          - pgvector>=0.3,<1
+          - python-json-logger>=2,<3
+        entry: python -m unittest discover -s annotator_backend/tests -p test_*.py -v
+        pass_filenames: false
