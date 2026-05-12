@@ -6,18 +6,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from annotator_backend.config import get_settings
+from annotator_backend.logging_config import setup_logging
 from annotator_backend.routers.tickets import router as tickets_router
 from db.session import configure_engine
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    if not logging.root.handlers:
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(levelname)s %(name)s %(message)s",
-        )
-    configure_engine(database_url=get_settings().database_url)
+    settings = get_settings()
+    setup_logging(json_logs=settings.log_json, level=logging.INFO)
+    configure_engine(database_url=settings.database_url)
     yield
 
 

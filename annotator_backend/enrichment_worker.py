@@ -37,15 +37,14 @@ def _truncate_detail(text: str, max_len: int = _DETAIL_MAX_LEN) -> str:
 
 
 def _phase(ticket_id: uuid.UUID, phase: str, enrichment_id: uuid.UUID | None = None) -> None:
+    extra: dict[str, object] = {
+        "event": "enrichment_phase",
+        "ticket_id": str(ticket_id),
+        "phase": phase,
+    }
     if enrichment_id is not None:
-        logger.info(
-            "enrichment_phase ticket_id=%s enrichment_id=%s phase=%s",
-            ticket_id,
-            enrichment_id,
-            phase,
-        )
-    else:
-        logger.info("enrichment_phase ticket_id=%s phase=%s", ticket_id, phase)
+        extra["enrichment_id"] = str(enrichment_id)
+    logger.info("enrichment_phase", extra=extra)
 
 
 def run_enrichment_job(ticket_id: uuid.UUID) -> None:
@@ -53,19 +52,43 @@ def run_enrichment_job(ticket_id: uuid.UUID) -> None:
     db = None
 
     if db_session.SessionLocal is None:
-        logger.error("enrichment_skip ticket_id=%s reason=no_session_factory", ticket_id)
+        logger.error(
+            "enrichment_skip",
+            extra={
+                "event": "enrichment_skip",
+                "ticket_id": str(ticket_id),
+                "reason": "no_session_factory",
+            },
+        )
         job_outcome = "skip_no_session"
-        logger.info("enrichment_job_finished ticket_id=%s outcome=%s", ticket_id, job_outcome)
+        logger.info(
+            "enrichment_job_finished",
+            extra={
+                "event": "enrichment_job_finished",
+                "ticket_id": str(ticket_id),
+                "outcome": job_outcome,
+            },
+        )
         return
 
     settings = get_settings()
     db = db_session.SessionLocal()
-    logger.info("enrichment_job_started ticket_id=%s", ticket_id)
+    logger.info(
+        "enrichment_job_started",
+        extra={"event": "enrichment_job_started", "ticket_id": str(ticket_id)},
+    )
 
     try:
         ticket = db.get(db_models.SupportTicket, ticket_id)
         if ticket is None:
-            logger.warning("enrichment_skip ticket_id=%s reason=ticket_not_found", ticket_id)
+            logger.warning(
+                "enrichment_skip",
+                extra={
+                    "event": "enrichment_skip",
+                    "ticket_id": str(ticket_id),
+                    "reason": "ticket_not_found",
+                },
+            )
             job_outcome = "skip_ticket_not_found"
             return
 
@@ -79,8 +102,12 @@ def run_enrichment_job(ticket_id: uuid.UUID) -> None:
         )
         if enrichment is None:
             logger.warning(
-                "enrichment_skip ticket_id=%s reason=no_current_enrichment",
-                ticket_id,
+                "enrichment_skip",
+                extra={
+                    "event": "enrichment_skip",
+                    "ticket_id": str(ticket_id),
+                    "reason": "no_current_enrichment",
+                },
             )
             job_outcome = "skip_no_enrichment"
             return
@@ -89,19 +116,26 @@ def run_enrichment_job(ticket_id: uuid.UUID) -> None:
 
         if enrichment.status in ("completed", "failed"):
             logger.info(
-                "enrichment_skip ticket_id=%s enrichment_id=%s reason=terminal_status status=%s",
-                ticket_id,
-                enrichment.id,
-                enrichment.status,
+                "enrichment_skip",
+                extra={
+                    "event": "enrichment_skip",
+                    "ticket_id": str(ticket_id),
+                    "enrichment_id": str(enrichment.id),
+                    "reason": "terminal_status",
+                    "status": enrichment.status,
+                },
             )
             job_outcome = f"skip_terminal_{enrichment.status}"
             return
 
         logger.info(
-            "enrichment_run_begin ticket_id=%s enrichment_id=%s prior_status=%s",
-            ticket_id,
-            enrichment.id,
-            enrichment.status,
+            "enrichment_run_begin",
+            extra={
+                "event": "enrichment_run_begin",
+                "ticket_id": str(ticket_id),
+                "enrichment_id": str(enrichment.id),
+                "prior_status": enrichment.status,
+            },
         )
 
         enrichment.status = "processing"
@@ -114,11 +148,14 @@ def run_enrichment_job(ticket_id: uuid.UUID) -> None:
             db.refresh(ticket)
             db.refresh(enrichment)
             logger.info(
-                "enrichment_attempt_begin ticket_id=%s enrichment_id=%s attempt=%s max=%s",
-                ticket_id,
-                enrichment.id,
-                attempt + 1,
-                MAX_ATTEMPTS,
+                "enrichment_attempt_begin",
+                extra={
+                    "event": "enrichment_attempt_begin",
+                    "ticket_id": str(ticket_id),
+                    "enrichment_id": str(enrichment.id),
+                    "attempt": attempt + 1,
+                    "max_attempts": MAX_ATTEMPTS,
+                },
             )
             _phase(ticket_id, "llm_call_begin", enrichment.id)
             try:
@@ -131,11 +168,14 @@ def run_enrichment_job(ticket_id: uuid.UUID) -> None:
                 _phase(ticket_id, "llm_call_transient_error", enrichment.id)
                 detail = _truncate_detail(str(e))
                 logger.warning(
-                    "enrichment_transient ticket_id=%s enrichment_id=%s attempt=%s detail=%s",
-                    ticket_id,
-                    enrichment.id,
-                    attempt + 1,
-                    detail,
+                    "enrichment_transient",
+                    extra={
+                        "event": "enrichment_transient",
+                        "ticket_id": str(ticket_id),
+                        "enrichment_id": str(enrichment.id),
+                        "attempt": attempt + 1,
+                        "detail": detail,
+                    },
                 )
                 enrichment.retry_count += 1
                 enrichment.last_attempt_at = _utc_now()
@@ -144,9 +184,12 @@ def run_enrichment_job(ticket_id: uuid.UUID) -> None:
                 if attempt < MAX_ATTEMPTS - 1:
                     backoff = 2**attempt
                     logger.debug(
-                        "enrichment_backoff ticket_id=%s seconds=%s",
-                        ticket_id,
-                        backoff,
+                        "enrichment_backoff",
+                        extra={
+                            "event": "enrichment_backoff",
+                            "ticket_id": str(ticket_id),
+                            "seconds": backoff,
+                        },
                     )
                     time.sleep(backoff)
                     continue
@@ -157,9 +200,13 @@ def run_enrichment_job(ticket_id: uuid.UUID) -> None:
                 enrichment.updated_at = _utc_now()
                 db.commit()
                 logger.error(
-                    "enrichment_failed ticket_id=%s enrichment_id=%s error_code=provider_timeout",
-                    ticket_id,
-                    enrichment.id,
+                    "enrichment_failed",
+                    extra={
+                        "event": "enrichment_failed",
+                        "ticket_id": str(ticket_id),
+                        "enrichment_id": str(enrichment.id),
+                        "error_code": "provider_timeout",
+                    },
                 )
                 _phase(ticket_id, "persist_failed_timeout", enrichment.id)
                 job_outcome = "failed_provider_timeout"
@@ -168,11 +215,14 @@ def run_enrichment_job(ticket_id: uuid.UUID) -> None:
                 _phase(ticket_id, "llm_call_validation_error", enrichment.id)
                 detail = _truncate_detail(str(e))
                 logger.warning(
-                    "enrichment_failed ticket_id=%s enrichment_id=%s error_code=%s detail=%s",
-                    ticket_id,
-                    enrichment.id,
-                    e.code,
-                    detail,
+                    "enrichment_failed",
+                    extra={
+                        "event": "enrichment_failed",
+                        "ticket_id": str(ticket_id),
+                        "enrichment_id": str(enrichment.id),
+                        "error_code": e.code,
+                        "detail": detail,
+                    },
                 )
                 enrichment.status = "failed"
                 enrichment.error_code = e.code
@@ -199,25 +249,34 @@ def run_enrichment_job(ticket_id: uuid.UUID) -> None:
                 db.commit()
                 _phase(ticket_id, "persist_completed", enrichment.id)
                 logger.info(
-                    "enrichment_completed ticket_id=%s enrichment_id=%s category=%s "
-                    "priority=%s sentiment=%s",
-                    ticket_id,
-                    enrichment.id,
-                    result.category,
-                    result.priority,
-                    result.sentiment,
+                    "enrichment_completed",
+                    extra={
+                        "event": "enrichment_completed",
+                        "ticket_id": str(ticket_id),
+                        "enrichment_id": str(enrichment.id),
+                        "category": result.category,
+                        "priority": result.priority,
+                        "sentiment": result.sentiment,
+                    },
                 )
                 job_outcome = "completed"
                 return
     except Exception:
         job_outcome = "unexpected_error"
         logger.exception(
-            "enrichment_unexpected ticket_id=%s",
-            ticket_id,
+            "enrichment_unexpected",
+            extra={"event": "enrichment_unexpected", "ticket_id": str(ticket_id)},
         )
         db.rollback()
         raise
     finally:
         if db is not None:
             db.close()
-        logger.info("enrichment_job_finished ticket_id=%s outcome=%s", ticket_id, job_outcome)
+        logger.info(
+            "enrichment_job_finished",
+            extra={
+                "event": "enrichment_job_finished",
+                "ticket_id": str(ticket_id),
+                "outcome": job_outcome,
+            },
+        )

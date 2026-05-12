@@ -9,7 +9,7 @@ Python/FastAPI service that ingests support tickets, enriches them asynchronousl
 - **Duplicates:** `duplicate_hash` is unique; content-hash duplicates return **200** without a second LLM job.
 - **PII / LLM boundary:** Stored ticket `title`/`body` (and API responses) are **unchanged**. Before each enrichment call, a **best-effort regex pass** ([`annotator_backend/pii_redact.py`](annotator_backend/pii_redact.py)) replaces obvious high-risk spans in the copy sent to the provider with fixed tokens (`[REDACTED_SSN]`, `[REDACTED_PHONE]`, `[REDACTED_CREDIT_CARD]`, `[REDACTED_API_KEY]`). **Email addresses are not redacted** (triage context). This is not a compliance-grade DLP layer and can miss real PII or false-positive on long numeric strings.
 - **PII:** Ticket `title`/`body` (after that redaction step) go to the LLM; `customer_email` is only in the JSON body and is not injected into that user message. The prompt instructs the model not to echo PII in structured fields; raw LLM responses are not stored—only parsed metadata.
-- **Logging:** Enrichment uses plain stdlib `logging` with **ticket/enrichment IDs**, attempt numbers, and **taxonomy** fields on success (`category`, `priority`, `sentiment`). It does **not** log ticket bodies, prompts, model summaries, or raw LLM output (see [notes.md](notes.md)).
+- **Logging:** Stdlib `logging` configured at startup ([`annotator_backend/logging_config.py`](annotator_backend/logging_config.py)); when **`LOG_JSON`** is true (default), each line to stdout is one JSON object (`python-json-logger`) with stable keys (`event`, IDs, attempts, outcomes, embedding-index fields). Set **`LOG_JSON=false`** for human-readable plain text locally. Same privacy rules apply: **no** ticket bodies, prompts, summaries, or raw LLM output (see [notes.md](notes.md)).
 
 ## Requirements
 
@@ -30,6 +30,7 @@ Copy [`.env.example`](.env.example) to `.env` and set your secrets. Important ke
 | `OPENAI_EMBEDDING_DIMENSIONS` | Vector size; must match `vector(N)` in [`db/schema.sql`](db/schema.sql) (default `1536`) |
 | `POSTGRES_*` | Credentials for the Postgres container |
 | `DATABASE_URL` | SQLAlchemy URL; use host `db` from Compose, `localhost` when running the API on the host |
+| `LOG_JSON` | If `true` (default), root/app logs are JSON lines; set `false` for plain-text formatter |
 
 ## Run with Docker Compose
 

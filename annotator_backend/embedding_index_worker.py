@@ -23,7 +23,14 @@ def _utc_now() -> datetime:
 
 def run_embedding_index_job(ticket_id: uuid.UUID) -> None:
     if db_session.SessionLocal is None:
-        logger.warning("embedding_index_skip ticket_id=%s reason=no_session_factory", ticket_id)
+        logger.warning(
+            "embedding_index_skip",
+            extra={
+                "event": "embedding_index_skip",
+                "ticket_id": str(ticket_id),
+                "reason": "no_session_factory",
+            },
+        )
         return
 
     settings = get_settings()
@@ -31,24 +38,42 @@ def run_embedding_index_job(ticket_id: uuid.UUID) -> None:
     try:
         ticket = db.get(db_models.SupportTicket, ticket_id)
         if ticket is None:
-            logger.warning("embedding_index_skip ticket_id=%s reason=ticket_not_found", ticket_id)
+            logger.warning(
+                "embedding_index_skip",
+                extra={
+                    "event": "embedding_index_skip",
+                    "ticket_id": str(ticket_id),
+                    "reason": "ticket_not_found",
+                },
+            )
             return
 
         text = ticket_index_text(ticket.title, ticket.body)
         content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
         existing = db.get(db_models.TicketSearchEmbedding, ticket_id)
         if existing is not None and existing.content_hash == content_hash:
-            logger.info("embedding_index_skip ticket_id=%s reason=unchanged_hash", ticket_id)
+            logger.info(
+                "embedding_index_skip",
+                extra={
+                    "event": "embedding_index_skip",
+                    "ticket_id": str(ticket_id),
+                    "reason": "unchanged_hash",
+                },
+            )
             return
 
         vectors = embed_texts([text], settings=settings)
         vec = vectors[0]
         if len(vec) != settings.openai_embedding_dimensions:
             logger.error(
-                "embedding_index_failed ticket_id=%s reason=wrong_dim expected=%s got=%s",
-                ticket_id,
-                settings.openai_embedding_dimensions,
-                len(vec),
+                "embedding_index_failed",
+                extra={
+                    "event": "embedding_index_failed",
+                    "ticket_id": str(ticket_id),
+                    "reason": "wrong_dim",
+                    "expected": settings.openai_embedding_dimensions,
+                    "got": len(vec),
+                },
             )
             return
 
@@ -71,9 +96,15 @@ def run_embedding_index_job(ticket_id: uuid.UUID) -> None:
         )
         db.execute(ins)
         db.commit()
-        logger.info("embedding_index_ok ticket_id=%s", ticket_id)
+        logger.info(
+            "embedding_index_ok",
+            extra={"event": "embedding_index_ok", "ticket_id": str(ticket_id)},
+        )
     except Exception:
-        logger.exception("embedding_index_failed ticket_id=%s", ticket_id)
+        logger.exception(
+            "embedding_index_failed",
+            extra={"event": "embedding_index_failed", "ticket_id": str(ticket_id)},
+        )
         db.rollback()
     finally:
         db.close()
